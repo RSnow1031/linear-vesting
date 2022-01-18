@@ -9,10 +9,13 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-
 contract LinearVesting is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
+
+    event TokenDeposited(address user, address tokenAddr, uint256 amount);
+    event TokenMinted(address user, address tokenAddr, address beneficiary, uint256 amount, uint256 time);
+    event TokenRedeemed(address beneficiary, uint256 amount);
 
     struct VestingSchedule {
         // address of token to vest
@@ -31,12 +34,36 @@ contract LinearVesting is Ownable, ReentrancyGuard {
         uint256 redeemed;
     }
 
+    // current vesting schedule identifier
     uint256 private curScheduleID = 0;
     mapping(uint256 => VestingSchedule) private vestingSchedules;
 
+    // amount of token available to mint that user deposited upfront
     mapping (address => mapping (address => uint256)) private tokenAmountByUsers;
 
-    function deposit(address tokenAddr, uint256 amount) public {
+    /**
+    * @notice Return current scheduleId.
+    * @return scheduleId the vesting schedule identifier
+    */
+    function getCurScheduleID() external view returns (uint256) {
+        return curScheduleID;
+    }
+
+    /**
+    * @notice Return amount of token that user can mint in the vesting contract.
+    * @return scheduleId the vesting schedule identifier
+    */
+    function getTokenAmountByUser(address tokenAddr) external view returns (uint256) {
+        return tokenAmountByUsers[msg.sender][tokenAddr];
+    }
+
+    /**
+    * @notice Deposit tokens to vest for a beneficiary.
+    * @dev Followed checks-effects-interactions pattern and nonReentrant modifier to prevent reentrancy attacks.
+    * @param tokenAddr address of token to deposit
+    * @param amount amount of token to deposit
+    */
+    function deposit(address tokenAddr, uint256 amount) public nonReentrant {
         require (tokenAddr != address(0), "LinearVesting: token is zero address");
         require (amount > 0, "LinearVesting: token amount is zero");
 
@@ -44,24 +71,29 @@ contract LinearVesting is Ownable, ReentrancyGuard {
         uint256 balanceOfSender = token.balanceOf(msg.sender);
         require (balanceOfSender > amount, "LinearVesting: user has not enough tokens");
 
-        tokenAmountByUsers[msg.sender][tokenAddr] += amount;
+        uint256 curAmount = tokenAmountByUsers[msg.sender][tokenAddr];
+        tokenAmountByUsers[msg.sender][tokenAddr] = curAmount.add(amount);
+
+        emit TokenDeposited(msg.sender, tokenAddr, amount);
         token.safeTransferFrom(msg.sender, address(this), amount);
     }
 
     /**
     * @notice Create a new vesting schedule for a beneficiary.
+    * @dev Used nonReentrant modifier to prevent reentrancy attacks
+    * Users can only mint using tokens they deposited upfront.
     * @param tokenAddr address of token to vest
     * @param toAddr address of beneficiary
     * @param amount total amount of tokens to be released at the end of the vesting
     * @param time duration in seconds of the period in which the tokens will vest
     */
     function mint(address tokenAddr, address toAddr, uint256 amount, uint256 time) public nonReentrant {
+        require (tokenAddr != address(0), "LinearVesting: token is zero address");
+        require (toAddr != address(0), "LinearVesting: mint to the zero address");
         require(
             tokenAmountByUsers[msg.sender][tokenAddr] >= amount,
             "LinearVesting: cannot mint because user has not enough tokens"
         );
-        require (tokenAddr != address(0), "LinearVesting: token is zero address");
-        require (toAddr != address(0), "LinearVesting: mint to the zero address");
         require (amount > 0, "LinearVesting: token amount is zero");
         require (time > 0, "LinearVesting: vesting duration is zero");
 
@@ -69,7 +101,7 @@ contract LinearVesting is Ownable, ReentrancyGuard {
             tokenAddr,
             msg.sender,
             toAddr,
-            block.timestamp,
+            getCurrentTime(),
             time,
             amount,
             0
@@ -78,41 +110,82 @@ contract LinearVesting is Ownable, ReentrancyGuard {
         uint256 curAmount = tokenAmountByUsers[msg.sender][tokenAddr];
         tokenAmountByUsers[msg.sender][tokenAddr] = curAmount.sub(amount);
 
-        curScheduleID.add(1);
+        curScheduleID = curScheduleID.add(1);
+
+        emit TokenMinted(msg.sender, tokenAddr, toAddr, amount, time);
     }
 
     /**
     * @notice Redeem vested amount of tokens.
+    * @dev Followed checks-effects-interactions pattern and nonReentrant modifier to prevent reentrancy attacks.
     * @param scheduleId the vesting schedule identifier
     */
     function redeem(uint256 scheduleId) public nonReentrant {
         VestingSchedule storage vestingSchedule = vestingSchedules[scheduleId];
+        address beneficiary = vestingSchedule.beneficiary;
         require(
-            msg.sender == vestingSchedule.beneficiary,
-            "LinearVesting: only beneficiary can release vested tokens"
+            msg.sender == beneficiary,
+            "LinearVesting: only beneficiary can redeem vested tokens"
         );
-        IERC20 token = IERC20(vestingSchedule.tokenAddr);
+
         uint256 amount = _getRedeemableAmount(vestingSchedule);
         vestingSchedule.redeemed = vestingSchedule.redeemed.add(amount);
 
-        token.safeTransfer(vestingSchedule.beneficiary, amount);
+        emit TokenRedeemed(beneficiary, amount);
+        IERC20 token = IERC20(vestingSchedule.tokenAddr);
+        token.safeTransfer(beneficiary, amount);
     }
 
     /**
-    * @dev Get the redeemable amount of tokens for a vesting schedule.
+    * @notice Returns the vesting schedule information for a given identifier.
+    * @param vestingScheduleId the vesting schedule identifier
+    * @return the vesting schedule structure information
+    */
+    function getVestingSchedule(uint256 vestingScheduleId)
+        public
+        view
+        returns(VestingSchedule memory){
+        return vestingSchedules[vestingScheduleId];
+    }
+
+    /**
+    * @notice Return the redeemable amount of tokens for a vesting schedule.
+    * @return the amount of redeemable tokens
+    */
+    function getRedeemableAmount(uint256 vestingScheduleId)
+        public
+        view
+        returns(uint256){
+        VestingSchedule storage vestingSchedule = vestingSchedules[vestingScheduleId];
+        return _getRedeemableAmount(vestingSchedule);
+    }
+
+    /**
+    * @notice Return the redeemable amount of tokens for a vesting schedule.
     * @return the amount of redeemable tokens
     */
     function _getRedeemableAmount(VestingSchedule memory vestingSchedule)
     internal
     view
-    returns(uint256){
-        if (block.timestamp >= vestingSchedule.start.add(vestingSchedule.duration)) {
+    returns(uint256) {
+        if (getCurrentTime() >= vestingSchedule.start.add(vestingSchedule.duration)) {
             return vestingSchedule.amountTotal.sub(vestingSchedule.redeemed);
         } else {
-            uint256 timeFromStart = block.timestamp.sub(vestingSchedule.start);
+            uint256 timeFromStart = getCurrentTime().sub(vestingSchedule.start);
             uint256 vestedAmount = vestingSchedule.amountTotal.mul(timeFromStart).div(vestingSchedule.duration);
             return vestedAmount.sub(vestingSchedule.redeemed);
         }
     }
 
+    /**
+    * @dev Return current time.
+    * @return block.timestamp
+    */
+    function getCurrentTime()
+        internal
+        virtual
+        view
+        returns(uint256){
+        return block.timestamp;
+    }
 }
