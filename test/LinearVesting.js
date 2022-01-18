@@ -86,7 +86,7 @@ describe("LinearVesting contract", async function() {
             });
         });
 
-        describe.only("Mint", async function() {
+        describe("Mint", async function() {
             beforeEach(async function() {
                 // deposit tokens to vesting contract
                 await testToken.approve(linearVesting.address, 1000);
@@ -94,69 +94,73 @@ describe("LinearVesting contract", async function() {
             })
 
             it("Should fail if token amount deposited by user is not enough", async function() {
-            
-                const amount = 10000;
+                
                 const time = 1000;
 
                 // mint tokens to addr1
-                await expect(linearVesting.mint(testToken.address, addr1.address, amount, time))
+                // note that user only have 1000 tokens 
+                await expect(linearVesting.mint(testToken.address, addr1.address, 10000, time))
+                .to.be.revertedWith("LinearVesting: cannot mint because user has not enough tokens");
+
+                // mint tokens to addr1
+                await linearVesting.mint(testToken.address, addr1.address, 100, time);
+
+                // should fail to mint tokens again
+                await expect(linearVesting.mint(testToken.address, addr1.address, 901, time))
                 .to.be.revertedWith("LinearVesting: cannot mint because user has not enough tokens");
             });
 
             it("Should fail if token address is zero", async function() {
-                const amount = 100;
-                const time = 1000;
                 const zeroAddr = ethers.constants.AddressZero;
 
                 // mint tokens to addr1
-                await expect(linearVesting.mint(zeroAddr, addr1.address, amount, time))
+                await expect(linearVesting.mint(zeroAddr, addr1.address, 100, 1000))
                 .to.be.revertedWith("LinearVesting: token is zero address");
             });
     
             it("Should fail if token amount is zero", async function() {
-                const amount = 0;
-                const time = 1000;
-
                 // mint tokens to addr1
-                await expect(linearVesting.mint(testToken.address, addr1.address, amount, time))
+                await expect(linearVesting.mint(testToken.address, addr1.address, 0, 1000))
                 .to.be.revertedWith("LinearVesting: token amount is zero");
             });
     
             it("Should fail if beneficiary address is zero", async function() {
-                const amount = 100;
-                const time = 1000;
                 const zeroAddr = ethers.constants.AddressZero;
 
                 // mint tokens to addr1
-                await expect(linearVesting.mint(testToken.address, zeroAddr, amount, time))
+                await expect(linearVesting.mint(testToken.address, zeroAddr, 100, 1000))
                 .to.be.revertedWith("LinearVesting: mint to the zero address");
             });
    
             it("Should decrease available token amount of user by minted amount", async function() {
-                const amount = 100;
-                const time = 1000;
                 const tokenAmountByUserBefore = await linearVesting.getTokenAmountByUser(testToken.address);
 
                 // mint tokens to addr1
-                await linearVesting.mint(testToken.address, addr1.address, amount, time);
+                await linearVesting.mint(testToken.address, addr1.address, 100, 1000);
                 const tokenAmountByUserAfter = await linearVesting.getTokenAmountByUser(testToken.address);
                 expect(tokenAmountByUserBefore.sub(tokenAmountByUserAfter).toNumber())
                 .to.be.equal(100);
             });
 
             it("Should increase schedule id by 1", async function() {
-                const amount = 100;
-                const time = 1000;
                 const scheduleIDBefore = await linearVesting.getCurScheduleID();
 
                 expect(scheduleIDBefore).to.be.equal(0);
 
                 // mint tokens to addr1
-                await linearVesting.mint(testToken.address, addr1.address, amount, time);
+                await linearVesting.mint(testToken.address, addr1.address, 100, 1000);
                 const scheduleIDAfter = await linearVesting.getCurScheduleID();
 
                 expect(scheduleIDAfter).to.be.equal(1);
             });
+        });
+
+        describe("Redeem", async function() {
+            beforeEach(async function() {
+                // deposit tokens to vesting contract
+                await testToken.approve(linearVesting.address, 1000);
+                await linearVesting.deposit(testToken.address, 1000);
+            })
 
             it("Redeemable amount should increase by time passed", async function() {
                 const amount = 100;
@@ -182,18 +186,15 @@ describe("LinearVesting contract", async function() {
                 // check that vested amount is half the total amount to vest
                 expect(
                     await linearVesting.getRedeemableAmount(scheduleID)
-                ).to.be.equal(50);
+                ).to.be.equal(amount / 2);
 
             });
 
             it("Should fail if someone but beneficiary try to redeem vested tokens", async function() {
-                const amount = 100;
-                const time = 1000;
-
                 const scheduleID = await linearVesting.getCurScheduleID();
 
                 // mint tokens to addr1
-                await linearVesting.mint(testToken.address, addr1.address, amount, time);
+                await linearVesting.mint(testToken.address, addr1.address, 100, 1000);
 
                 // Try to redeem by addr2
                 await expect(linearVesting.connect(addr2).redeem(scheduleID))
@@ -211,10 +212,6 @@ describe("LinearVesting contract", async function() {
 
                 // mint tokens to addr1
                 await linearVesting.mint(testToken.address, addr1.address, amount, time);
-
-                // should fail to mint tokens again
-                await expect(linearVesting.mint(testToken.address, addr1.address, 901, time))
-                .to.be.revertedWith("LinearVesting: cannot mint because user has not enough tokens");
 
                 // set time to quater the vesting period
                 const quaterTime = baseTime + time / 4;

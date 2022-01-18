@@ -59,7 +59,7 @@ contract LinearVesting is Ownable, ReentrancyGuard {
 
     /**
     * @notice Deposit tokens to vest for a beneficiary.
-    * @dev Followed checks-effects-interactions pattern and nonReentrant modifier to prevent reentrancy attacks.
+    * @dev Follow checks-effects-interactions pattern and use reentrancy guard to prevent reentrancy attacks.
     * @param tokenAddr address of token to deposit
     * @param amount amount of token to deposit
     */
@@ -80,14 +80,13 @@ contract LinearVesting is Ownable, ReentrancyGuard {
 
     /**
     * @notice Create a new vesting schedule for a beneficiary.
-    * @dev Used nonReentrant modifier to prevent reentrancy attacks
-    * Users can only mint using tokens they deposited upfront.
+    * @dev Users can only mint using tokens they deposited upfront.
     * @param tokenAddr address of token to vest
     * @param toAddr address of beneficiary
     * @param amount total amount of tokens to be released at the end of the vesting
     * @param time duration in seconds of the period in which the tokens will vest
     */
-    function mint(address tokenAddr, address toAddr, uint256 amount, uint256 time) public nonReentrant {
+    function mint(address tokenAddr, address toAddr, uint256 amount, uint256 time) public {
         require (tokenAddr != address(0), "LinearVesting: token is zero address");
         require (toAddr != address(0), "LinearVesting: mint to the zero address");
         require(
@@ -117,7 +116,7 @@ contract LinearVesting is Ownable, ReentrancyGuard {
 
     /**
     * @notice Redeem vested amount of tokens.
-    * @dev Followed checks-effects-interactions pattern and nonReentrant modifier to prevent reentrancy attacks.
+    * @dev Follow checks-effects-interactions pattern and use reentrancy guard to prevent reentrancy attacks.
     * @param scheduleId the vesting schedule identifier
     */
     function redeem(uint256 scheduleId) public nonReentrant {
