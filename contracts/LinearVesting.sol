@@ -53,7 +53,7 @@ contract LinearVesting is Ownable, ReentrancyGuard {
     * @return scheduleId the vesting schedule identifier
     */
     function getTokenAmountByUser(address tokenAddr) external view returns (uint256) {
-        return tokenAmountByUsers[msg.sender][tokenAddr];
+        return tokenAmountByUsers[_msgSender()][tokenAddr];
     }
 
     /**
@@ -67,14 +67,14 @@ contract LinearVesting is Ownable, ReentrancyGuard {
         require (amount > 0, "LinearVesting: token amount is zero");
 
         IERC20 token = IERC20(tokenAddr);
-        uint256 balanceOfSender = token.balanceOf(msg.sender);
+        uint256 balanceOfSender = token.balanceOf(_msgSender());
         require (balanceOfSender > amount, "LinearVesting: user has not enough tokens");
 
-        uint256 curAmount = tokenAmountByUsers[msg.sender][tokenAddr];
-        tokenAmountByUsers[msg.sender][tokenAddr] = curAmount.add(amount);
+        uint256 curAmount = tokenAmountByUsers[_msgSender()][tokenAddr];
+        tokenAmountByUsers[_msgSender()][tokenAddr] = curAmount.add(amount);
 
-        emit TokenDeposited(msg.sender, tokenAddr, amount);
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        emit TokenDeposited(_msgSender(), tokenAddr, amount);
+        token.safeTransferFrom(_msgSender(), address(this), amount);
     }
 
     /**
@@ -89,7 +89,7 @@ contract LinearVesting is Ownable, ReentrancyGuard {
         require (tokenAddr != address(0), "LinearVesting: token is zero address");
         require (toAddr != address(0), "LinearVesting: mint to the zero address");
         require(
-            tokenAmountByUsers[msg.sender][tokenAddr] >= amount,
+            tokenAmountByUsers[_msgSender()][tokenAddr] >= amount,
             "LinearVesting: cannot mint because user has not enough tokens"
         );
         require (amount > 0, "LinearVesting: token amount is zero");
@@ -97,7 +97,7 @@ contract LinearVesting is Ownable, ReentrancyGuard {
 
         vestingSchedules[curScheduleID] = VestingSchedule(
             tokenAddr,
-            msg.sender,
+            _msgSender(),
             toAddr,
             getCurrentTime(),
             time,
@@ -105,12 +105,12 @@ contract LinearVesting is Ownable, ReentrancyGuard {
             0
         );
 
-        uint256 curAmount = tokenAmountByUsers[msg.sender][tokenAddr];
-        tokenAmountByUsers[msg.sender][tokenAddr] = curAmount.sub(amount);
+        uint256 curAmount = tokenAmountByUsers[_msgSender()][tokenAddr];
+        tokenAmountByUsers[_msgSender()][tokenAddr] = curAmount.sub(amount);
 
         curScheduleID = curScheduleID.add(1);
 
-        emit TokenMinted(msg.sender, tokenAddr, toAddr, amount, time);
+        emit TokenMinted(_msgSender(), tokenAddr, toAddr, amount, time);
     }
 
     /**
@@ -122,7 +122,7 @@ contract LinearVesting is Ownable, ReentrancyGuard {
         VestingSchedule storage vestingSchedule = vestingSchedules[scheduleId];
         address beneficiary = vestingSchedule.beneficiary;
         require(
-            msg.sender == beneficiary,
+            _msgSender() == beneficiary,
             "LinearVesting: only beneficiary can redeem vested tokens"
         );
 
