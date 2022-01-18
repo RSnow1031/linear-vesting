@@ -19,8 +19,6 @@ contract LinearVesting is Ownable, ReentrancyGuard {
     struct VestingSchedule {
         // address of token to vest
         address tokenAddr;
-        // benefactor of tokens
-        address benefactor;
         // beneficiary of tokens after they are released
         address beneficiary;
         // start time of the vesting period
@@ -97,7 +95,6 @@ contract LinearVesting is Ownable, ReentrancyGuard {
 
         vestingSchedules[curScheduleID] = VestingSchedule(
             tokenAddr,
-            _msgSender(),
             toAddr,
             getCurrentTime(),
             time,
